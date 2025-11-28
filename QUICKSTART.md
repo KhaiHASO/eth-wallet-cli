@@ -16,11 +16,12 @@ conda env create -f environment.yml
 conda activate walletlab
 ```
 
-### 2. Install Frontend Dependencies
+### 2. Install Frontend Dependencies & Env
 
 ```bash
 cd frontend
 npm install
+cp .env.example .env   # chỉnh VITE_API_BASE nếu backend đổi port
 cd ..
 ```
 
@@ -62,6 +63,8 @@ chmod +x start_frontend.sh
 **Or manually:**
 ```bash
 cd frontend
+npm run lint        # optional
+npm run typecheck   # optional
 npm run dev
 ```
 

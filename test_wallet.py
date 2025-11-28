@@ -35,21 +35,26 @@ def test_wallet():
     # Kiểm thử 3: Ký thông điệp
     print("\n3. Kiểm tra ký thông điệp...")
     message = "Chuyển 5 ETH"
-    signature, signer_address = wallet.sign_message(message, private_key)
+    sign_result = wallet.sign_message(message, private_key)
+    signature = sign_result["signature"]
+    signer_address = sign_result["address"]
     print(f"   ✓ Thông điệp: {message}")
-    print(f"   ✓ Chữ ký: {signature[:30]}...")
+    print(f"   ✓ Hash: {sign_result['message_hash']}")
+    print(f"   ✓ v/r/s: {sign_result['v']} / {sign_result['r'][:18]}... / {sign_result['s'][:18]}...")
     print(f"   ✓ Địa chỉ ký: {signer_address}")
     assert signer_address == address, "Sai lệch địa chỉ ký!"
     
     # Kiểm thử 4: Xác thực qua địa chỉ
     print("\n4. Kiểm tra xác thực chữ ký (dùng địa chỉ)...")
-    is_valid = wallet.verify_signature_with_address(message, signature, address)
+    is_valid, recovered_address, message_hash = wallet.verify_signature(message, signature)
     print(f"   ✓ Kết quả: {is_valid}")
-    assert is_valid, "Xác thực chữ ký thất bại!"
+    print(f"   ✓ Địa chỉ khôi phục: {recovered_address}")
+    print(f"   ✓ Hash: {message_hash}")
+    assert is_valid and recovered_address.lower() == address.lower(), "Xác thực chữ ký thất bại!"
     
     # Kiểm thử 5: Xác thực bằng khóa công khai
     print("\n5. Kiểm tra xác thực (dùng khóa công khai)...")
-    is_valid, recovered_address = wallet.verify_signature_with_public_key(
+    is_valid, recovered_address, message_hash = wallet.verify_signature_with_public_key(
         message, signature, public_key
     )
     print(f"   ✓ Kết quả: {is_valid}")
@@ -60,7 +65,7 @@ def test_wallet():
     # Kiểm thử 6: Phát hiện chữ ký giả
     print("\n6. Kiểm tra phát hiện chữ ký sai...")
     fake_signature = "0x" + "00" * 65
-    is_valid = wallet.verify_signature_with_address(message, fake_signature, address)
+    is_valid, _, _ = wallet.verify_signature(message, fake_signature)
     print(f"   ✓ Đã phát hiện chữ ký sai: {not is_valid}")
     assert not is_valid, "Lẽ ra phải phát hiện chữ ký sai!"
     

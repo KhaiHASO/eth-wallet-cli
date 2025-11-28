@@ -23,9 +23,10 @@ eth-wallet-cli/
 ├── cli/
 │   └── wallet_cli.py     # Công cụ dòng lệnh
 ├── frontend/
-│   ├── src/              # React components
+│   ├── src/              # React + TS components/hooks/utils
+│   ├── tests/            # Vitest unit tests
 │   ├── package.json
-│   └── vite.config.js
+│   └── vite.config.ts
 ├── environment.yml       # Môi trường conda
 ├── QUICKSTART.md         # Hướng dẫn nhanh
 ├── PROJECT_STRUCTURE.md  # Mô tả kiến trúc
@@ -51,6 +52,7 @@ conda activate walletlab
 # Frontend
 cd frontend
 npm install
+cp .env.example .env
 cd ..
 ```
 
@@ -69,6 +71,7 @@ python app.py
 ### Frontend
 ```bash
 cd frontend
+cp .env.example .env   # chỉnh VITE_API_BASE nếu backend đổi port
 npm run dev
 ```
 - UI: `http://localhost:3000`
@@ -90,12 +93,32 @@ python cli/wallet_cli.py verify --message "Chuyển 5 ETH" --signature 0x... --a
 | `POST /api/wallet/verify` | Xác thực chữ ký (kèm `address` hoặc `public_key`) |
 | `GET /api/wallet/address/{private_key}` | Đổi khóa riêng sang địa chỉ |
 
+## Frontend UI (React + Vite + TypeScript)
+
+- 3 tab rõ ràng (Generate / Sign / Verify) với state độc lập.  
+- **Generate**: hiển thị checksum address, QR code, copy nhanh, tải JSON demo, opt-in lưu khóa trong localStorage.  
+- **Sign**: ký chuỗi hoặc JSON, toggle `personal_sign` (EIP-191), import khóa từ file JSON, hiển thị hash/v/r/s/signature gộp, cảnh báo non–low-s.  
+- **Verify**: hai chế độ nhập chữ ký (hex gộp hoặc v/r/s), tự động tách chữ ký, so khớp địa chỉ kỳ vọng, hiển thị trạng thái và message hash.  
+- Toast thông báo, validate form, nút bị disable khi loading, API client tách riêng (`src/api/client.ts`).  
+- Cấu hình endpoint qua `.env` (`VITE_API_BASE`) – dễ dàng trỏ tới backend khác.
+
 ## Chi tiết kỹ thuật
 
 - Đường cong secp256k1, chữ ký ECDSA  
 - Hàm băm Keccak-256, địa chỉ lấy 20 byte cuối -> checksum  
 - Thông điệp ký theo chuẩn `\x19Ethereum Signed Message:\n{len}{message}`  
 - Dùng thư viện `eth-keys`, `eth-utils`, `FastAPI`, `React`, `Axios`
+
+## Kiểm thử
+
+- Backend: `python test_wallet.py`  
+- Frontend utils: 
+  ```bash
+  cd frontend
+  npm run test
+  npm run typecheck   # kiểm tra TypeScript
+  npm run lint        # ESLint flat config
+  ```
 
 ## Bảo mật
 

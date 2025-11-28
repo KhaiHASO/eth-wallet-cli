@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
-import json
+from eth_utils import to_checksum_address
 
 from wallet_core import WalletCore
 
@@ -33,12 +33,18 @@ class KeyPairResponse(BaseModel):
 class SignRequest(BaseModel):
     message: str
     private_key: str
+    personal: bool = True
 
 
 class SignResponse(BaseModel):
     signature: str
     message: str
     address: str
+    message_hash: str
+    v: int
+    r: str
+    s: str
+    is_low_s: bool
 
 
 class VerifyRequest(BaseModel):
@@ -46,11 +52,14 @@ class VerifyRequest(BaseModel):
     signature: str
     public_key: Optional[str] = None
     address: Optional[str] = None
+    personal: bool = True
 
 
 class VerifyResponse(BaseModel):
     valid: bool
     address: Optional[str] = None
+    message_hash: Optional[str] = None
+    match_expected: Optional[bool] = None
 
 
 @app.get("/")
@@ -76,11 +85,16 @@ def generate_wallet():
 def sign_message(request: SignRequest):
     """Ký một thông điệp bằng khóa riêng"""
     try:
-        signature, address = wallet_core.sign_message(request.message, request.private_key)
+        result = wallet_core.sign_message(request.message, request.private_key, request.personal)
         return SignResponse(
-            signature=signature,
+            signature=result["signature"],
             message=request.message,
-            address=address
+            address=result["address"],
+            message_hash=result["message_hash"],
+            v=result["v"],
+            r=result["r"],
+            s=result["s"],
+            is_low_s=result["is_low_s"],
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -90,22 +104,45 @@ def sign_message(request: SignRequest):
 def verify_signature(request: VerifyRequest):
     """Xác thực chữ ký"""
     try:
+        personal = request.personal
+        match_expected = None
+        
         if request.public_key:
-            valid, address = wallet_core.verify_signature_with_public_key(
-                request.message, request.signature, request.public_key
+            valid, recovered_address, message_hash = wallet_core.verify_signature_with_public_key(
+                request.message,
+                request.signature,
+                request.public_key,
+                personal,
             )
-        elif request.address:
-            valid = wallet_core.verify_signature_with_address(
-                request.message, request.signature, request.address
-            )
-            address = request.address if valid else None
         else:
-            raise HTTPException(
-                status_code=400,
-                detail="Cần cung cấp public_key hoặc address"
+            valid, recovered_address, message_hash = wallet_core.verify_signature(
+                request.message,
+                request.signature,
+                personal,
             )
         
-        return VerifyResponse(valid=valid, address=address)
+        if request.address:
+            expected = request.address
+            if not expected.startswith("0x"):
+                expected = f"0x{expected}"
+            try:
+                expected_checksum = to_checksum_address(expected)
+            except Exception:
+                expected_checksum = expected
+            if recovered_address:
+                match_expected = recovered_address.lower() == expected_checksum.lower()
+                if not match_expected:
+                    valid = False
+            else:
+                match_expected = False
+                valid = False
+        
+        return VerifyResponse(
+            valid=valid,
+            address=recovered_address,
+            message_hash=message_hash,
+            match_expected=match_expected,
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

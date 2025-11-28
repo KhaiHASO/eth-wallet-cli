@@ -2,10 +2,14 @@
 Lõi chức năng ví Ethereum
 Xử lý sinh khóa, ký và xác thực
 """
+from typing import Optional, Tuple
+
 from eth_keys import keys
+from eth_keys.constants import SECPK1_N
 from eth_utils import keccak, to_checksum_address
 import secrets
-import json
+
+HALF_CURVE_ORDER = SECPK1_N // 2
 
 
 class WalletCore:
@@ -74,123 +78,83 @@ class WalletCore:
         
         return address
     
-    def sign_message(self, message: str, private_key_hex: str):
+    def sign_message(self, message: str, private_key_hex: str, use_personal: bool = True):
         """
-        Ký thông điệp bằng khóa riêng
-        
-        Args:
-            message: Thông điệp cần ký (JSON hoặc văn bản)
-            private_key_hex: Khóa riêng dạng hex
-            
-        Returns:
-            tuple: (signature_hex, address)
+        Ký thông điệp bằng khóa riêng và trả về đầy đủ thông tin chữ ký.
         """
-        # Bỏ tiền tố 0x nếu có
         if private_key_hex.startswith('0x'):
             private_key_hex = private_key_hex[2:]
         
         private_key_bytes = bytes.fromhex(private_key_hex)
         private_key = keys.PrivateKey(private_key_bytes)
         
-        # Định dạng chuẩn của Ethereum: "\x19Ethereum Signed Message:\n{length}{message}"
-        # Tránh việc chữ ký bị dùng làm giao dịch Ethereum hợp lệ
-        message_bytes = message.encode('utf-8')
-        eth_message = f"\x19Ethereum Signed Message:\n{len(message_bytes)}{message}".encode('utf-8')
-        
-        # Băm thông điệp
-        message_hash = keccak(eth_message)
-        
-        # Ký trên băm
+        message_hash = self._hash_message(message, use_personal)
         signature = private_key.sign_msg_hash(message_hash)
         
-        # Lấy địa chỉ để phục vụ xác thực
         address = self.private_key_to_address(private_key_hex)
-        
-        # Trả chữ ký dạng hex (r, s, v)
         signature_hex = signature.to_hex()
+        r_hex = self._int_to_hex(signature.r)
+        s_hex = self._int_to_hex(signature.s)
         
-        return signature_hex, address
+        return {
+            "signature": signature_hex,
+            "message_hash": f"0x{message_hash.hex()}",
+            "address": address,
+            "v": signature.v,
+            "r": r_hex,
+            "s": s_hex,
+            "is_low_s": signature.s <= HALF_CURVE_ORDER
+        }
     
-    def verify_signature_with_public_key(self, message: str, signature_hex: str, public_key_hex: str):
-        """
-        Xác thực chữ ký bằng khóa công khai
-        
-        Args:
-            message: Thông điệp gốc
-            signature_hex: Chữ ký dạng hex
-            public_key_hex: Khóa công khai dạng hex
-            
-        Returns:
-            tuple: (is_valid, recovered_address)
-        """
-        # Bỏ tiền tố 0x nếu có
+    def verify_signature_with_public_key(
+        self,
+        message: str,
+        signature_hex: str,
+        public_key_hex: str,
+        use_personal: bool = True,
+    ) -> Tuple[bool, Optional[str], str]:
+        """Xác thực chữ ký bằng khóa công khai đã cho"""
         if public_key_hex.startswith('0x'):
             public_key_hex = public_key_hex[2:]
         if signature_hex.startswith('0x'):
             signature_hex = signature_hex[2:]
         
+        message_hash = self._hash_message(message, use_personal)
+        
         try:
             public_key_bytes = bytes.fromhex(public_key_hex)
             public_key = keys.PublicKey(public_key_bytes)
             
-            # Tạo lại thông điệp theo chuẩn Ethereum
-            message_bytes = message.encode('utf-8')
-            eth_message = f"\x19Ethereum Signed Message:\n{len(message_bytes)}{message}".encode('utf-8')
-            message_hash = keccak(eth_message)
-            
-            # Chuyển chữ ký từ hex thành đối tượng
             signature_bytes = bytes.fromhex(signature_hex)
             signature = keys.Signature(signature_bytes)
             
-            # Kiểm tra chữ ký
             is_valid = signature.verify_msg_hash(message_hash, public_key)
-            
-            # Khôi phục địa chỉ từ chữ ký
-            recovered_public_key = signature.recover_public_key_from_msg_hash(message_hash)
-            recovered_address = self._public_key_to_address(recovered_public_key)
-            
-            return is_valid, recovered_address
-        except Exception as e:
-            return False, None
+            recovered_address = self._public_key_to_address(public_key)
+            return is_valid, recovered_address, f"0x{message_hash.hex()}"
+        except Exception:
+            return False, None, f"0x{message_hash.hex()}"
     
-    def verify_signature_with_address(self, message: str, signature_hex: str, address: str):
-        """
-        Xác thực chữ ký thông qua địa chỉ khôi phục
-        
-        Args:
-            message: Thông điệp gốc
-            signature_hex: Chữ ký dạng hex
-            address: Địa chỉ Ethereum mong đợi
-            
-        Returns:
-            bool: True nếu chữ ký hợp lệ và địa chỉ trùng khớp
-        """
-        # Bỏ tiền tố 0x nếu có
-        if signature_hex.startswith('0x'):
-            signature_hex = signature_hex[2:]
-        if address.startswith('0x'):
-            address = address.lower()
-        else:
-            address = '0x' + address.lower()
+    def verify_signature(
+        self,
+        message: str,
+        signature_hex: str,
+        use_personal: bool = True,
+    ) -> Tuple[bool, Optional[str], str]:
+        """Xác thực chữ ký và khôi phục địa chỉ người ký"""
+        normalized = signature_hex[2:] if signature_hex.startswith('0x') else signature_hex
+        message_hash = self._hash_message(message, use_personal)
         
         try:
-            # Tạo lại thông điệp theo chuẩn Ethereum
-            message_bytes = message.encode('utf-8')
-            eth_message = f"\x19Ethereum Signed Message:\n{len(message_bytes)}{message}".encode('utf-8')
-            message_hash = keccak(eth_message)
-            
-            # Chuyển chữ ký từ hex thành đối tượng
-            signature_bytes = bytes.fromhex(signature_hex)
+            signature_bytes = bytes.fromhex(normalized)
             signature = keys.Signature(signature_bytes)
             
-            # Khôi phục khóa công khai từ chữ ký
             recovered_public_key = signature.recover_public_key_from_msg_hash(message_hash)
             recovered_address = self._public_key_to_address(recovered_public_key)
             
-            # So sánh địa chỉ (không phân biệt hoa thường)
-            return recovered_address.lower() == address.lower()
-        except Exception as e:
-            return False
+            is_valid = signature.verify_msg_hash(message_hash, recovered_public_key)
+            return is_valid, recovered_address, f"0x{message_hash.hex()}"
+        except Exception:
+            return False, None, f"0x{message_hash.hex()}"
     
     def _public_key_to_address(self, public_key):
         """Hàm hỗ trợ chuyển khóa công khai thành địa chỉ"""
@@ -203,4 +167,20 @@ class WalletCore:
         address = to_checksum_address(address_bytes.hex())
         
         return address
+
+    def _hash_message(self, message: str, use_personal: bool) -> bytes:
+        """Băm thông điệp theo chuẩn EIP-191 nếu cần"""
+        message_bytes = message.encode('utf-8')
+        if use_personal:
+            prefix = f"\x19Ethereum Signed Message:\n{len(message_bytes)}".encode('utf-8')
+            payload = prefix + message_bytes
+        else:
+            payload = message_bytes
+        return keccak(payload)
+
+    def _int_to_hex(self, value: int, length: int = 32) -> str:
+        """Chuyển số nguyên sang hex có padding"""
+        hex_value = hex(value)[2:]
+        padded = hex_value.rjust(length * 2, '0')
+        return f"0x{padded}"
 

@@ -21,19 +21,20 @@ eth-wallet-cli/
 ├── cli/                       # Command-Line Interface
 │   └── wallet_cli.py          # CLI tool for wallet operations
 │
-├── frontend/                  # React.js Frontend
+├── frontend/                  # React + Vite + TypeScript Frontend
 │   ├── src/
-│   │   ├── components/
-│   │   │   ├── WalletGenerator.jsx    # Wallet generation component
-│   │   │   ├── MessageSigner.jsx      # Message signing component
-│   │   │   └── SignatureVerifier.jsx  # Signature verification component
-│   │   ├── App.jsx            # Main application component
-│   │   ├── App.css            # Application styles
-│   │   ├── main.jsx           # React entry point
+│   │   ├── api/client.ts      # Axios client + typed endpoints
+│   │   ├── components/        # Tabs, forms, field, toast
+│   │   ├── utils/eth.ts       # Eth helpers (checksum, signature, storage)
+│   │   ├── App.tsx / App.css  # Main application component
+│   │   ├── main.tsx           # React entry point
 │   │   └── index.css          # Global styles
 │   ├── index.html             # HTML template
 │   ├── package.json           # Node.js dependencies
-│   └── vite.config.js         # Vite configuration
+│   ├── tsconfig*.json         # TypeScript configuration
+│   └── vite.config.ts         # Vite & Vitest configuration
+│
+├── frontend/tests/            # Vitest unit tests
 │
 ├── environment.yml            # Conda environment specification
 ├── .gitignore                # Git ignore rules
@@ -61,52 +62,45 @@ eth-wallet-cli/
   - `GET /api/wallet/address/{private_key}` - Get address from private key
 
 #### `wallet_core.py`
-- `WalletCore` class with methods:
-  - `generate_keypair()` - Generate private/public key pair and address
-  - `private_key_to_address()` - Derive address from private key
-  - `sign_message()` - Sign a message with private key
-  - `verify_signature_with_public_key()` - Verify signature using public key
-  - `verify_signature_with_address()` - Verify signature by recovering address
-  - `_public_key_to_address()` - Helper to convert public key to address
+- `WalletCore` class với các phương thức:
+  - `generate_keypair()` - Sinh khóa riêng/công khai + địa chỉ checksum
+  - `private_key_to_address()` - Dẫn xuất địa chỉ từ khóa riêng
+  - `sign_message(message, private_key, use_personal)` - Trả chữ ký hex, hash, v/r/s, cờ low-s
+  - `verify_signature()` - Khôi phục địa chỉ từ chữ ký, trả `valid`, `address`, `message_hash`
+  - `verify_signature_with_public_key()` - Kiểm tra chữ ký đối với public key cụ thể
+  - Helpers `_hash_message`, `_int_to_hex`, `_public_key_to_address`
 
 ### CLI (`cli/`)
 
 #### `wallet_cli.py`
-- Command-line interface for wallet operations
-- Commands:
-  - `generate` - Generate a new wallet
-  - `sign` - Sign a message
-  - `verify` - Verify a signature
-- Interactive prompts for missing parameters
-- Optional file saving for wallets and signatures
+- Command-line interface (Python) cho các thao tác ví
+- Lệnh:
+  - `generate` – tạo ví mới, hỏi lưu JSON
+  - `sign` – ký thông điệp, hỗ trợ `--raw` để bỏ EIP-191, in hash + r/s/v
+  - `verify` – kiểm tra chữ ký (gộp hoặc r/s/v), `--raw` option, hỗ trợ đối chiếu địa chỉ/public key
+- Có thể nhập khóa thủ công hoặc tải từ file JSON
 
 ### Frontend (`frontend/`)
 
-#### Components
+#### Components & Features
 
-**WalletGenerator.jsx**
-- UI for generating new wallets
-- Displays private key, public key, and address
-- Copy-to-clipboard functionality
-- Security warnings
+- `Tabs.tsx`: điều hướng 3 tab Generate / Sign / Verify
+- `GenerateForm.tsx`: sinh khóa, hiển thị checksum address + QR code, copy nhanh, lưu JSON demo, opt-in nhớ khóa trong localStorage
+- `SignForm.tsx`: ký chuỗi hoặc JSON, toggle `personal_sign`, tải khóa từ file JSON, hiển thị hash + v/r/s + chữ ký gộp, cảnh báo non–low-s
+- `VerifyForm.tsx`: hỗ trợ ký tự v/r/s hoặc chữ ký hex gộp, tự tách chữ ký, highlight kết quả đối chiếu địa chỉ kỳ vọng, hiển thị message hash
+- `Field.tsx`: component input + label + action + helper/error nhỏ gọn
+- `Toast.tsx`: ToastProvider + hook dùng để hiển thị toast success/error/info
 
-**MessageSigner.jsx**
-- UI for signing messages
-- Input fields for message and private key
-- Displays signature and signer address
-- Copy-to-clipboard functionality
+#### Utilities & API
 
-**SignatureVerifier.jsx**
-- UI for verifying signatures
-- Supports verification with address or public key
-- Displays verification result
-- Shows recovered address when using public key
+- `api/client.ts`: Axios instance đọc `VITE_API_BASE`, interceptor lỗi thân thiện, export `walletApi.generate/sign/verify`
+- `utils/eth.ts`: canonical JSON (sắp xếp key), checksum EIP-55, parse/compose signature, helper lưu localStorage
+- `tests/utils.eth.test.ts`: Vitest kiểm tra checksum + canonical JSON + parseSig
 
 #### Styling
-- Modern gradient design
-- Responsive layout
-- Card-based UI components
-- Color-coded alerts (success, error, warning)
+- Layout thẻ bo tròn, shadow mềm, responsive
+- Toast nổi, mode toggle, QR wrapper, chip trạng thái verify
+- Nút có trạng thái loading và validate form rõ ràng
 
 ## Technology Stack
 
@@ -118,14 +112,15 @@ eth-wallet-cli/
 - **Pydantic**: Data validation
 
 ### Frontend
-- **React 18**: UI library
-- **Vite**: Build tool and dev server
-- **Axios**: HTTP client
-- **CSS3**: Styling with modern features
+- **React 18 + TypeScript**
+- **Vite** (dev server) & **Vitest** (unit test)
+- **Axios** + **js-sha3** + **qrcode.react**
+- Thuần CSS (không dùng UI kit nặng)
 
 ### Development Tools
-- **Conda**: Environment management
-- **npm**: Package management
+- **Conda** cho backend
+- **npm** scripts (`dev`, `build`, `lint`, `typecheck`, `test`)
+- **ESLint flat config** + **TypeScript strict**
 - **Git**: Version control
 
 ## Data Flow
@@ -162,17 +157,19 @@ eth-wallet-cli/
 
 ## Testing
 
-Run the test script to verify functionality:
+- **Backend**
+  ```bash
+  conda activate walletlab
+  python test_wallet.py
+  ```
+  Kiểm tra sinh khóa, ký, xác thực (EIP-191) và phát hiện chữ ký giả.
 
-```bash
-conda activate walletlab
-python test_wallet.py
-```
-
-This will test:
-- Key generation
-- Address derivation
-- Message signing
-- Signature verification (with address and public key)
-- Invalid signature detection
+- **Frontend utils**
+  ```bash
+  cd frontend
+  npm run lint
+  npm run typecheck
+  npm run test
+  ```
+  Đảm bảo helper `checksum`, `canonicalJson`, `parseSignature` hoạt động đúng và code TypeScript sạch lint.
 

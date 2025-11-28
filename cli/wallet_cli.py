@@ -11,7 +11,7 @@ from pathlib import Path
 # Thêm thư mục cha vào path để import wallet_core
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
-from wallet_core import WalletCore
+from wallet_core import WalletCore  # type: ignore
 
 
 def generate_wallet():
@@ -43,7 +43,7 @@ def generate_wallet():
         print(f"Đã lưu ví vào {filename}\n")
 
 
-def sign_message(message: str, private_key: str = None):
+def sign_message(message: str, private_key: str = None, personal: bool = True):
     """Ký thông điệp"""
     wallet = WalletCore()
     
@@ -62,14 +62,18 @@ def sign_message(message: str, private_key: str = None):
             private_key = input("Nhập khóa riêng: ").strip()
     
     try:
-        signature, address = wallet.sign_message(message, private_key)
+        result = wallet.sign_message(message, private_key, personal)
         
         print("\n" + "="*60)
         print("ĐÃ KÝ THÔNG ĐIỆP")
         print("="*60)
         print(f"Thông điệp: {message}")
-        print(f"Địa chỉ:    {address}")
-        print(f"Chữ ký:     {signature}")
+        print(f"Địa chỉ:    {result['address']}")
+        print(f"Hash:       {result['message_hash']}")
+        print(f"r:          {result['r']}")
+        print(f"s:          {result['s']} (low-s: {'✓' if result['is_low_s'] else '✗'})")
+        print(f"v:          {result['v']}")
+        print(f"Chữ ký:     {result['signature']}")
         print("="*60 + "\n")
         
         # Tùy chọn lưu chữ ký
@@ -78,8 +82,8 @@ def sign_message(message: str, private_key: str = None):
             filename = input("Tên file (mặc định: signature.json): ").strip() or "signature.json"
             signature_data = {
                 "message": message,
-                "signature": signature,
-                "address": address
+                "signature": result["signature"],
+                "address": result["address"]
             }
             with open(filename, 'w') as f:
                 json.dump(signature_data, f, indent=2)
@@ -89,34 +93,47 @@ def sign_message(message: str, private_key: str = None):
         sys.exit(1)
 
 
-def verify_signature(message: str, signature: str, address: str = None, public_key: str = None):
+def verify_signature(message: str, signature: str, address: str = None, public_key: str = None, personal: bool = True):
     """Xác thực chữ ký"""
     wallet = WalletCore()
     
     if address:
-        is_valid = wallet.verify_signature_with_address(message, signature, address)
+        is_valid, recovered_address, message_hash = wallet.verify_signature(message, signature, personal)
+        normalized_expected = address.lower() if address else None
+        match_expected = recovered_address.lower() == normalized_expected if recovered_address and normalized_expected else False
         print("\n" + "="*60)
         print("KIỂM TRA CHỮ KÝ")
         print("="*60)
         print(f"Thông điệp: {message}")
-        print(f"Địa chỉ:    {address}")
+        print(f"Địa chỉ kỳ vọng: {address}")
+        print(f"Địa chỉ khôi phục: {recovered_address}")
+        print(f"Hash: {message_hash}")
         print(f"Chữ ký:     {signature}")
-        print(f"Kết quả: {'✓ HỢP LỆ' if is_valid else '✗ KHÔNG HỢP LỆ'}")
+        print(f"Kết quả: {'✓ HỢP LỆ' if is_valid and match_expected else '✗ KHÔNG HỢP LỆ'}")
         print("="*60 + "\n")
     elif public_key:
-        is_valid, recovered_address = wallet.verify_signature_with_public_key(message, signature, public_key)
+        is_valid, recovered_address, message_hash = wallet.verify_signature_with_public_key(message, signature, public_key, personal)
         print("\n" + "="*60)
         print("KIỂM TRA CHỮ KÝ")
         print("="*60)
         print(f"Thông điệp:        {message}")
         print(f"Khóa công khai:    {public_key}")
+        print(f"Hash:              {message_hash}")
         print(f"Chữ ký:            {signature}")
         print(f"Địa chỉ khôi phục: {recovered_address}")
         print(f"Kết quả: {'✓ HỢP LỆ' if is_valid else '✗ KHÔNG HỢP LỆ'}")
         print("="*60 + "\n")
     else:
-        print("Lỗi: Cần cung cấp address hoặc public_key\n")
-        sys.exit(1)
+        is_valid, recovered_address, message_hash = wallet.verify_signature(message, signature, personal)
+        print("\n" + "="*60)
+        print("KIỂM TRA CHỮ KÝ")
+        print("="*60)
+        print(f"Thông điệp: {message}")
+        print(f"Hash:       {message_hash}")
+        print(f"Địa chỉ khôi phục: {recovered_address}")
+        print(f"Chữ ký:     {signature}")
+        print(f"Kết quả: {'✓ HỢP LỆ' if is_valid else '✗ KHÔNG HỢP LỆ'}")
+        print("="*60 + "\n")
 
 
 def main():
@@ -141,6 +158,7 @@ Ví dụ:
     sign_parser = subparsers.add_parser('sign', help='Ký thông điệp')
     sign_parser.add_argument('message', help='Thông điệp cần ký')
     sign_parser.add_argument('--private-key', help='Khóa riêng (tùy chọn, sẽ hỏi nếu không cung cấp)')
+    sign_parser.add_argument('--raw', action='store_true', help='Ký dạng raw, không dùng Ethereum Signed Message (EIP-191)')
     
     # Verify command
     verify_parser = subparsers.add_parser('verify', help='Xác thực chữ ký')
@@ -148,6 +166,7 @@ Ví dụ:
     verify_parser.add_argument('--signature', required=True, help='Chữ ký cần kiểm tra')
     verify_parser.add_argument('--address', help='Địa chỉ kỳ vọng')
     verify_parser.add_argument('--public-key', help='Khóa công khai')
+    verify_parser.add_argument('--raw', action='store_true', help='Xác thực dạng raw (không dùng tiền tố EIP-191)')
     
     args = parser.parse_args()
     
@@ -158,9 +177,11 @@ Ví dụ:
     if args.command == 'generate':
         generate_wallet()
     elif args.command == 'sign':
-        sign_message(args.message, args.private_key)
+        use_personal = not args.raw
+        sign_message(args.message, args.private_key, use_personal)
     elif args.command == 'verify':
-        verify_signature(args.message, args.signature, args.address, args.public_key)
+        use_personal = not args.raw
+        verify_signature(args.message, args.signature, args.address, args.public_key, use_personal)
 
 
 if __name__ == "__main__":
