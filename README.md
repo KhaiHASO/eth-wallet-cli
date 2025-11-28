@@ -131,8 +131,6 @@ python cli/wallet_cli.py verify --message "Chuyển 5 ETH" --signature 0x... --a
 - **Phan Hoàng Khải**  
 - **Lê Minh Nhật**
 
-Liên hệ hỗ trợ: phan.khai@example.com, minh.nhat@example.com
-
 ## Giấy phép & tham khảo
 
 - Dùng cho mục đích học tập trong môn Blockchain & Applications  
